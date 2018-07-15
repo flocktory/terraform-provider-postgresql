@@ -33,7 +33,7 @@ func Provider() terraform.ResourceProvider {
 			"database": {
 				Type:        schema.TypeString,
 				Optional:    true,
-				Description: "The name of the database to connect to in order to conenct to (defaults to `postgres`).",
+				Description: "The name of the database to connect to in order to connect to (defaults to `postgres`).",
 				DefaultFunc: schema.EnvDefaultFunc("PGDATABASE", "postgres"),
 			},
 			"username": {
@@ -88,6 +88,7 @@ func Provider() terraform.ResourceProvider {
 			"postgresql_extension": resourcePostgreSQLExtension(),
 			"postgresql_schema":    resourcePostgreSQLSchema(),
 			"postgresql_role":      resourcePostgreSQLRole(),
+			"postgresql_table":     resourcePostgreSQLTable(),
 		},
 
 		ConfigureFunc: providerConfigure,

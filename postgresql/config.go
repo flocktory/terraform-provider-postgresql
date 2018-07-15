@@ -33,7 +33,7 @@ type dbRegistryEntry struct {
 
 var (
 	dbRegistryLock sync.Mutex
-	dbRegistry     map[string]dbRegistryEntry = make(map[string]dbRegistryEntry, 1)
+	dbRegistry     = make(map[string]dbRegistryEntry, 1)
 
 	// Mapping of feature flags to versions
 	featureSupported = map[featureName]semver.Range{

@@ -325,7 +325,7 @@ func resourcePostgreSQLRoleRead(d *schema.ResourceData, meta interface{}) error 
 func resourcePostgreSQLRoleReadImpl(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*Client)
 
-	roleId := d.Id()
+	roleID := d.Id()
 	var roleSuperuser, roleInherit, roleCreateRole, roleCreateDB, roleCanLogin, roleReplication bool
 	var roleConnLimit int
 	var roleName, roleValidUntil string
@@ -343,7 +343,7 @@ func resourcePostgreSQLRoleReadImpl(d *schema.ResourceData, meta interface{}) er
 	}
 
 	roleSQL := fmt.Sprintf("SELECT %s FROM pg_catalog.pg_roles WHERE rolname=$1", strings.Join(columns, ", "))
-	err := c.DB().QueryRow(roleSQL, roleId).Scan(
+	err := c.DB().QueryRow(roleSQL, roleID).Scan(
 		&roleName,
 		&roleSuperuser,
 		&roleInherit,
@@ -356,7 +356,7 @@ func resourcePostgreSQLRoleReadImpl(d *schema.ResourceData, meta interface{}) er
 	)
 	switch {
 	case err == sql.ErrNoRows:
-		log.Printf("[WARN] PostgreSQL ROLE (%s) not found", roleId)
+		log.Printf("[WARN] PostgreSQL ROLE (%s) not found", roleID)
 		d.SetId("")
 		return nil
 	case err != nil:
@@ -379,7 +379,7 @@ func resourcePostgreSQLRoleReadImpl(d *schema.ResourceData, meta interface{}) er
 	if c.featureSupported(featureRLS) {
 		var roleBypassRLS bool
 		roleSQL := "SELECT rolbypassrls FROM pg_catalog.pg_roles WHERE rolname=$1"
-		err = c.DB().QueryRow(roleSQL, roleId).Scan(&roleBypassRLS)
+		err = c.DB().QueryRow(roleSQL, roleID).Scan(&roleBypassRLS)
 		if err != nil {
 			return errwrap.Wrapf("Error reading RLS properties for ROLE: {{err}}", err)
 		}
@@ -394,10 +394,10 @@ func resourcePostgreSQLRoleReadImpl(d *schema.ResourceData, meta interface{}) er
 	}
 
 	var rolePassword string
-	err = c.DB().QueryRow("SELECT COALESCE(passwd, '') FROM pg_catalog.pg_shadow AS s WHERE s.usename = $1", roleId).Scan(&rolePassword)
+	err = c.DB().QueryRow("SELECT COALESCE(passwd, '') FROM pg_catalog.pg_shadow AS s WHERE s.usename = $1", roleID).Scan(&rolePassword)
 	switch {
 	case err == sql.ErrNoRows:
-		return errwrap.Wrapf(fmt.Sprintf("PostgreSQL role (%s) not found in shadow database: {{err}}", roleId), err)
+		return errwrap.Wrapf(fmt.Sprintf("PostgreSQL role (%s) not found in shadow database: {{err}}", roleID), err)
 	case err != nil:
 		return errwrap.Wrapf("Error reading role: {{err}}", err)
 	}
