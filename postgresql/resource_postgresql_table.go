@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/hashicorp/errwrap"
-	"github.com/hashicorp/terraform/helper/hashcode"
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/lib/pq"
 )
@@ -38,9 +38,8 @@ func resourcePostgreSQLTable() *schema.Resource {
 				Description: "The name of the table",
 			},
 			columnAttr: {
-				Type:     schema.TypeSet,
+				Type:     schema.TypeList,
 				Optional: true,
-				Set:      columnID,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						columnNameAttr: {
@@ -60,12 +59,6 @@ func resourcePostgreSQLTable() *schema.Resource {
 			},
 		},
 	}
-}
-
-func columnID(v interface{}) int {
-	column := v.(map[string]interface{})
-	columnName := column[columnNameAttr].(string)
-	return hashcode.String(columnName)
 }
 
 func resourcePostgreSQLTableCreate(d *schema.ResourceData, meta interface{}) error {
@@ -125,6 +118,55 @@ func resourcePostgreSQLTableRead(d *schema.ResourceData, meta interface{}) error
 	return resourcePostgreSQLTableReadImpl(d, meta)
 }
 
+const columnsDescribeQuery = `
+	SELECT 
+		column_name as name, 
+		ordinal_position as id, 
+		column_default as default_expr,
+		is_nullable,
+		udt_name as column_type,
+		character_maximum_length as max_length
+	FROM information_schema.columns 
+	WHERE table_name = $1
+	`
+
+func orDefault(data sql.NullString, fallback string) string {
+	if data.Valid {
+		return data.String
+	}
+	return fallback
+}
+
+func parseIsNullable(data string) bool {
+	return strings.ToLower(data) == "yes"
+}
+
+func columns(c *Client, tableName string) ([]interface{}, error) {
+	var columns []interface{}
+	rows, _ := c.DB().Query(columnsDescribeQuery, tableName)
+	for rows.Next() {
+		var name, columnType string
+		var defaultExpr sql.NullString
+		var id int
+		var maxLength sql.NullInt64
+		var isNullable string
+
+		err := rows.Scan(&name, &id, &defaultExpr, &isNullable, &columnType, &maxLength)
+		if err != nil {
+			return columns, err
+		}
+		column := map[string]interface{}{
+			columnNameAttr: name,
+			columnTypeAttr: columnType,
+		}
+		if maxLength.Valid {
+			column[columnMaxLengthAttr] = maxLength.Int64
+		}
+		columns = append(columns, column)
+	}
+	return columns, nil
+}
+
 const tableDescribeQuery = "SELECT table_name FROM information_schema.tables WHERE table_schema='public' and table_name = $1"
 
 func resourcePostgreSQLTableReadImpl(d *schema.ResourceData, meta interface{}) error {
@@ -150,6 +192,16 @@ func resourcePostgreSQLTableReadImpl(d *schema.ResourceData, meta interface{}) e
 
 	d.Set(tableNameAttr, tableName)
 	d.SetId(tableName)
+
+	columns, err := columns(c, tableName)
+
+	if err != nil {
+		return errwrap.Wrapf(fmt.Sprintf("Error reading columns TABLE (%s): {{err}}", tableID), err)
+	}
+
+	if err := d.Set(columnAttr, columns); err != nil {
+		return errwrap.Wrapf(fmt.Sprintf("Error setting columns TABLE (%s): {{err}}", tableID), err)
+	}
 
 	return nil
 }

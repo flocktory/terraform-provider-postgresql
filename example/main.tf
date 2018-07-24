@@ -11,4 +11,15 @@ provider "postgresql" {
 
 resource "postgresql_table" "items" {
   name = "items"
+
+  column {
+    name = "id"
+    type = "int"
+  }
+
+  column {
+    name       = "description"
+    type       = "varchar"
+    max_length = "255"
+  }
 }
