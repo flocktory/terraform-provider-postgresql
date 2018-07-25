@@ -121,14 +121,25 @@ func resourcePostgreSQLTableRead(d *schema.ResourceData, meta interface{}) error
 const columnsDescribeQuery = `
 	SELECT 
 		column_name as name, 
-		ordinal_position as id, 
 		column_default as default_expr,
 		is_nullable,
 		udt_name as column_type,
 		character_maximum_length as max_length
 	FROM information_schema.columns 
 	WHERE table_name = $1
+	ORDER BY ordinal_position
 	`
+
+var typeAliases = map[string]string{
+	"int4": "int",
+}
+
+func useTypeAlias(columnType string) string {
+	if v, found := typeAliases[columnType]; found {
+		return v
+	}
+	return columnType
+}
 
 func orDefault(data sql.NullString, fallback string) string {
 	if data.Valid {
@@ -147,17 +158,16 @@ func columns(c *Client, tableName string) ([]interface{}, error) {
 	for rows.Next() {
 		var name, columnType string
 		var defaultExpr sql.NullString
-		var id int
 		var maxLength sql.NullInt64
 		var isNullable string
 
-		err := rows.Scan(&name, &id, &defaultExpr, &isNullable, &columnType, &maxLength)
+		err := rows.Scan(&name, &defaultExpr, &isNullable, &columnType, &maxLength)
 		if err != nil {
 			return columns, err
 		}
 		column := map[string]interface{}{
 			columnNameAttr: name,
-			columnTypeAttr: columnType,
+			columnTypeAttr: useTypeAlias(columnType),
 		}
 		if maxLength.Valid {
 			column[columnMaxLengthAttr] = maxLength.Int64
