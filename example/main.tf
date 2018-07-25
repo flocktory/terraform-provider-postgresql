@@ -17,9 +17,9 @@ resource "postgresql_table" "items" {
     type = "int"
   }
 
-  # column {
-  #   name       = "description"
-  #   type       = "varchar"
-  #   max_length = "255"
-  # }
+  column {
+    name       = "description"
+    type       = "varchar"
+    max_length = "255"
+  }
 }

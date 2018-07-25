@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/errwrap"
@@ -217,6 +218,14 @@ func resourcePostgreSQLTableReadImpl(d *schema.ResourceData, meta interface{}) e
 	return nil
 }
 
+func resourcePostgreSQLTableUpdate(d *schema.ResourceData, meta interface{}) error {
+	c := meta.(*Client)
+	c.catalogLock.Lock()
+	defer c.catalogLock.Unlock()
+
+	return resourcePostgreSQLTableUpdateImpl(d, meta)
+}
+
 func renameTableIfNeeded(d *schema.ResourceData, db *sql.DB) error {
 	if !d.HasChange(columnNameAttr) {
 		return nil
@@ -241,19 +250,74 @@ func renameTableIfNeeded(d *schema.ResourceData, db *sql.DB) error {
 	return nil
 }
 
-func resourcePostgreSQLTableUpdate(d *schema.ResourceData, meta interface{}) error {
-	c := meta.(*Client)
-	c.catalogLock.Lock()
-	defer c.catalogLock.Unlock()
+func buildColumnMaxLength(column map[string]interface{}) string {
+	if maxLengthRaw, found := column[columnMaxLengthAttr]; found {
+		maxLength := maxLengthRaw.(int)
+		if maxLength == 0 {
+			return ""
+		}
+		return "(" + strconv.Itoa(maxLength) + ")"
+	}
+	return ""
+}
 
-	return resourcePostgreSQLTableUpdateImpl(d, meta)
+func createColumn(db *sql.DB, tableName string, column map[string]interface{}) error {
+	columnName := column[columnNameAttr].(string)
+	columnType := column[columnTypeAttr].(string)
+
+	sql := fmt.Sprintf(
+		"ALTER TABLE %s ADD COLUMN %s %s%s",
+		tableName,
+		pq.QuoteIdentifier(columnName),
+		columnType,
+		buildColumnMaxLength(column))
+	log.Printf("[DEBUG] create column: `%s`", sql)
+	if _, err := db.Exec(sql); err != nil {
+		return errwrap.Wrapf("Error updating table NAME: {{err}}", err)
+	}
+	return nil
+}
+
+func alterColumnsIfNeeded(d *schema.ResourceData, db *sql.DB) error {
+	if !d.HasChange(columnAttr) {
+		return nil
+	}
+	oldRaw, newRaw := d.GetChange(columnAttr)
+	old := oldRaw.([]interface{})
+	new := newRaw.([]interface{})
+	log.Print("alter columns:")
+	log.Print(old)
+	log.Print(new)
+
+	// TODO: drop all columns that should be dropped
+	log.Print("diff:")
+	for i, newColumnRaw := range new {
+		newColumn := newColumnRaw.(map[string]interface{})
+		isNewColumn := i >= len(old)
+
+		if isNewColumn {
+			if err := createColumn(db, d.Id(), newColumn); err != nil {
+				return err
+			}
+		}
+
+		// TODO: alter existing column
+	}
+
+	return nil
 }
 
 func resourcePostgreSQLTableUpdateImpl(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*Client)
 	db := c.DB()
 
-	if err := renameTableIfNeeded(d, db); err != nil {
+	if !d.IsNewResource() {
+		if err := renameTableIfNeeded(d, db); err != nil {
+			return err
+		}
+	}
+
+	if err := alterColumnsIfNeeded(d, db); err != nil {
 		return err
 	}
 
