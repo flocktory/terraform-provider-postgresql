@@ -10,16 +10,16 @@ provider "postgresql" {
 }
 
 resource "postgresql_table" "items" {
-  name = "items"
+  name = "items3"
 
   column {
     name = "id"
     type = "int"
   }
 
-  column {
-    name       = "description"
-    type       = "varchar"
-    max_length = "255"
-  }
+  # column {
+  #   name       = "description"
+  #   type       = "varchar"
+  #   max_length = "255"
+  # }
 }

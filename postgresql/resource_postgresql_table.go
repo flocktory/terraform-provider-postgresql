@@ -2,6 +2,7 @@ package postgresql
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -152,9 +153,9 @@ func parseIsNullable(data string) bool {
 	return strings.ToLower(data) == "yes"
 }
 
-func columns(c *Client, tableName string) ([]interface{}, error) {
+func columns(db *sql.DB, tableName string) ([]interface{}, error) {
 	var columns []interface{}
-	rows, _ := c.DB().Query(columnsDescribeQuery, tableName)
+	rows, _ := db.Query(columnsDescribeQuery, tableName)
 	for rows.Next() {
 		var name, columnType string
 		var defaultExpr sql.NullString
@@ -181,14 +182,14 @@ const tableDescribeQuery = "SELECT table_name FROM information_schema.tables WHE
 
 func resourcePostgreSQLTableReadImpl(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*Client)
-
+	db := c.DB()
 	tableID := d.Id()
 
 	var tableName string
 
 	log.Printf("[DEBUG] table read: `%s`", tableID)
 
-	err := c.DB().QueryRow(tableDescribeQuery, tableID).Scan(
+	err := db.QueryRow(tableDescribeQuery, tableID).Scan(
 		&tableName,
 	)
 	switch {
@@ -203,7 +204,7 @@ func resourcePostgreSQLTableReadImpl(d *schema.ResourceData, meta interface{}) e
 	d.Set(tableNameAttr, tableName)
 	d.SetId(tableName)
 
-	columns, err := columns(c, tableName)
+	columns, err := columns(db, tableName)
 
 	if err != nil {
 		return errwrap.Wrapf(fmt.Sprintf("Error reading columns TABLE (%s): {{err}}", tableID), err)
@@ -216,18 +217,45 @@ func resourcePostgreSQLTableReadImpl(d *schema.ResourceData, meta interface{}) e
 	return nil
 }
 
+func renameTableIfNeeded(d *schema.ResourceData, db *sql.DB) error {
+	if !d.HasChange(columnNameAttr) {
+		return nil
+	}
+
+	oraw, nraw := d.GetChange(columnNameAttr)
+	old := oraw.(string)
+	new := nraw.(string)
+
+	if new == "" {
+		return errors.New("Error setting table name to an empty string")
+	}
+
+	sql := fmt.Sprintf("ALTER TABLE %s RENAME TO %s", pq.QuoteIdentifier(old), pq.QuoteIdentifier(new))
+	log.Printf("[DEBUG] table rename: `%s`", sql)
+	if _, err := db.Exec(sql); err != nil {
+		return errwrap.Wrapf("Error updating table NAME: {{err}}", err)
+	}
+
+	d.SetId(new)
+
+	return nil
+}
+
 func resourcePostgreSQLTableUpdate(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*Client)
 	c.catalogLock.Lock()
 	defer c.catalogLock.Unlock()
 
-	//db := c.DB()
-
-	return resourcePostgreSQLTableReadImpl(d, meta)
+	return resourcePostgreSQLTableUpdateImpl(d, meta)
 }
 
 func resourcePostgreSQLTableUpdateImpl(d *schema.ResourceData, meta interface{}) error {
-	//c := meta.(*Client)
+	c := meta.(*Client)
+	db := c.DB()
+
+	if err := renameTableIfNeeded(d, db); err != nil {
+		return err
+	}
 
 	return resourcePostgreSQLTableReadImpl(d, meta)
 }
