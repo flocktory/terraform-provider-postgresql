@@ -20,6 +20,8 @@ const (
 	columnNameAttr       = "name"
 	columnTypeAttr       = "type"
 	columnMaxLengthAttr  = "max_length"
+	columnDefaultAttr    = "default"
+	columnIsNullAttr     = "is_null"
 )
 
 func resourcePostgreSQLTable() *schema.Resource {
@@ -55,6 +57,15 @@ func resourcePostgreSQLTable() *schema.Resource {
 						columnMaxLengthAttr: {
 							Type:     schema.TypeInt,
 							Optional: true,
+						},
+						columnDefaultAttr: {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						columnIsNullAttr: {
+							Type:     schema.TypeBool,
+							Optional: true,
+							Default:  false,
 						},
 					},
 				},
@@ -168,11 +179,15 @@ func columns(db *sql.DB, tableName string) ([]interface{}, error) {
 			return columns, err
 		}
 		column := map[string]interface{}{
-			columnNameAttr: name,
-			columnTypeAttr: useTypeAlias(columnType),
+			columnNameAttr:   name,
+			columnTypeAttr:   useTypeAlias(columnType),
+			columnIsNullAttr: parseIsNullable(isNullable),
 		}
 		if maxLength.Valid {
 			column[columnMaxLengthAttr] = maxLength.Int64
+		}
+		if defaultExpr.Valid {
+			column[columnDefaultAttr] = defaultExpr.String
 		}
 		columns = append(columns, column)
 	}
@@ -253,10 +268,29 @@ func renameTableIfNeeded(d *schema.ResourceData, db *sql.DB) error {
 func buildColumnMaxLength(column map[string]interface{}) string {
 	if maxLengthRaw, found := column[columnMaxLengthAttr]; found {
 		maxLength := maxLengthRaw.(int)
-		if maxLength == 0 {
-			return ""
+		if maxLength != 0 {
+			return "(" + strconv.Itoa(maxLength) + ")"
 		}
-		return "(" + strconv.Itoa(maxLength) + ")"
+	}
+	return ""
+}
+
+func buildColumnDefault(column map[string]interface{}) string {
+	if defaultRaw, found := column[columnDefaultAttr]; found {
+		defaultExpr := defaultRaw.(string)
+		if defaultExpr != "" {
+			return " DEFAULT " + defaultExpr
+		}
+	}
+	return ""
+}
+
+func buildColumnNotNull(column map[string]interface{}) string {
+	if isNullRaw, found := column[columnIsNullAttr]; found {
+		isNull := isNullRaw.(bool)
+		if !isNull {
+			return " NOT NULL"
+		}
 	}
 	return ""
 }
@@ -266,11 +300,13 @@ func createColumn(db *sql.DB, tableName string, column map[string]interface{}) e
 	columnType := column[columnTypeAttr].(string)
 
 	sql := fmt.Sprintf(
-		"ALTER TABLE %s ADD COLUMN %s %s%s",
+		"ALTER TABLE %s ADD COLUMN %s %s%s%s%s",
 		tableName,
 		pq.QuoteIdentifier(columnName),
 		columnType,
-		buildColumnMaxLength(column))
+		buildColumnMaxLength(column),
+		buildColumnDefault(column),
+		buildColumnNotNull(column))
 	log.Printf("[DEBUG] create column: `%s`", sql)
 	if _, err := db.Exec(sql); err != nil {
 		return errwrap.Wrapf("Error updating table NAME: {{err}}", err)
